@@ -67,7 +67,7 @@ cv.addEventListener('pointermove',e=>{if(touches.has(e.pointerId)){touches.set(e
 let tiltAsked=false;
 function tapStart(){if(!tiltAsked){tiltAsked=true;enableTilt();}if(AC&&AC.state==='suspended')AC.resume();if(state==='over'&&performance.now()-overAt<700)return;startGame();}
 // ---------- World ----------
-const G=1500,JUMP=-820,PW=64,PH=14;
+const G=1500,JUMP=-820,SPRING=-1300,TRAMP=-1500,PW=64,PH=14;
 let state='start',overAt=0,P,plats,coins,mons,pows,parts,floaters,camY,score,coinsRun,superRun,stomps,hi=LS.get('hi',0),coinBank=LS.get('coins',0),topGen,t0=0,shake=0;
 const rnd=(a,b)=>a+Math.random()*(b-a);
 function diff(){return Math.min(1,(-camY)/25000);}
@@ -80,7 +80,7 @@ function startGame(){
 function gen(){
  const d=diff(),gap=rnd(55,85+d*95);topGen-=gap;
  const r=Math.random();let t='n';
- if(r<.12+d*.2)t='m';else if(r<.2+d*.3)t='b';else if(r<.25+d*.33)t='d';
+ if(r<.2+d*.2)t='m';else if(r<.28+d*.3)t='b';else if(r<.33+d*.33)t='d';
  const p={x:rnd(0,W-PW),y:topGen,t,vx:t==='m'?rnd(40,80+d*80)*(Math.random()<.5?-1:1):0,broken:false,gone:0,fall:0};
  plats.push(p);
  if(t==='b'){gen0();return;} // breaking platform: ensure another real one nearby
@@ -95,8 +95,35 @@ function gen(){
 }
 function gen0(){topGen-=rnd(10,30);plats.push({x:rnd(0,W-PW),y:topGen,t:'n',vx:0,gone:0,fall:0});}
 function burst(x,y,c,n=10,s=180){for(let i=0;i<n;i++){const a=Math.random()*6.28,v=rnd(s*.3,s);parts.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,l:rnd(.4,.8),c,r:rnd(2,4)});}}
+const KIDPOW={kid1:['RAKETE!','jet',4],kid2:['SCHUTZSCHILD!','shield',8],kid3:['MAGNET!','magnet',8],kid4:['MEGA-SPRUNG!','mega',6]};
+function kidPower(k){const [name,key,t]=KIDPOW[k];P[key]=t;if(key==='jet')P.prop=0;if(key==='magnet')P.dbl=t;P.kid=P.kid||{};P.kid[key]=k;P.banner={k,name,l:1.8};SFX.power();}
 function floatTxt(x,y,s,c='#fff'){floaters.push({x,y,s,c,l:1});}
-function bounce(v){P.vy=v;P.sq=.65;P.anim=1;}
+function bounce(v){if(P.mega>0)v*=1.45;P.lastBounce=v;P.vy=v;P.sq=.65;P.anim=1;}
+
+// one physics substep: move, then swept landing test against CURRENT platform positions
+function physStep(dt){
+ P.x+=P.vx*dt;if(P.x<-20)P.x+=W+40;if(P.x>W+20)P.x-=W+40;
+ if(P.jet>0){P.jet-=dt;P.vy=Math.max(P.vy-3200*dt,-1100);if(Math.random()<dt*60)burst(P.x-P.face*14,P.y+20,'#ffa53a',1,90);}
+ else if(P.prop>0){P.prop-=dt;P.vy=Math.max(P.vy-2400*dt,-750);}
+ else P.vy+=G*dt;
+ const prevFeet=P.y+30;P.y+=P.vy*dt;const feet=P.y+30;
+ for(const p of plats){
+  if(p.t==='m'){p.x+=p.vx*dt;if(p.x<0||p.x>W-PW){p.vx*=-1;p.x=Math.max(0,Math.min(W-PW,p.x));}}
+  if(p.broken){p.fall+=dt*600;p.y+=p.fall*dt;}
+  if(p.gone)p.gone+=dt;}
+ for(const u of pows)if(u.on){u.x=u.on.x+PW/2+u.dx;u.y=u.on.y-(u.hover?30:0);if(!u.used&&(u.on.broken||u.on.gone>.3))u.used=1;}
+ const flying=P.jet>0||P.prop>0;
+ if(flying||P.dead||P.vy<=0)return;
+ // springs / trampolines first (their top sits above the platform)
+ for(const u of pows){if(u.used||(u.k!=='spring'&&u.k!=='tramp'))continue;
+  const top=u.y-(u.k==='tramp'?12:14),half=u.k==='tramp'?36:22;
+  if(Math.abs(P.x-u.x)<half&&prevFeet<=top+2&&feet>=top){P.y=top-30;bounce(u.k==='tramp'?TRAMP:SPRING);u.act=1;SFX.spring();if(u.k==='tramp')P.flip=1;return;}}
+ for(const p of plats){
+  if(p.broken||p.gone)continue;
+  if(P.x>p.x-14&&P.x<p.x+PW+14&&prevFeet<=p.y+2&&feet>=p.y){
+   if(p.t==='b'){p.broken=true;SFX.break();burst(p.x+PW/2,p.y,'#8a5a2b',8);continue;}
+   P.y=p.y-30;bounce(JUMP);SFX.jump();if(p.t==='d')p.gone=.001;if(p.t==='m')P.vx+=p.vx*.3;return;}}
+}
 // ---------- Update ----------
 function update(dt){
  const d=diff();
@@ -104,42 +131,24 @@ function update(dt){
  let ax=0;if(keys.ArrowLeft||keys.a)ax-=1;if(keys.ArrowRight||keys.d)ax+=1;if(touchDir)ax=touchDir;
  let target=(hasTilt&&!ax&&!touchDir)?tilt*420:ax*400;
  P.vx+=(target-P.vx)*Math.min(1,dt*10);if(Math.abs(P.vx)>20)P.face=Math.sign(P.vx);
- P.x+=P.vx*dt;if(P.x<-20)P.x+=W+40;if(P.x>W+20)P.x-=W+40;
- if(P.jet>0){P.jet-=dt;P.vy=Math.max(P.vy-3200*dt,-1100);burst(P.x-P.face*14,P.y+20,'#ffa53a',1,90);}
- else if(P.prop>0){P.prop-=dt;P.vy=Math.max(P.vy-2400*dt,-750);}
- else P.vy+=G*dt;
- const prevY=P.y;P.y+=P.vy*dt;
+ if(P.shield>0)P.shield-=dt;if(P.magnet>0)P.magnet-=dt;if(P.dbl>0)P.dbl-=dt;if(P.mega>0)P.mega-=dt;if(P.banner){P.banner.l-=dt;if(P.banner.l<=0)P.banner=null;}for(const k in (P.kid||{}))if(!(P[k]>0))delete P.kid[k];
  P.sq+=(1-P.sq)*Math.min(1,dt*12);P.anim=Math.max(0,P.anim-dt*1.6);
- if(P.shield>0)P.shield-=dt;if(P.magnet>0)P.magnet-=dt;
+ // fixed substeps (<=1/240 s) so 30-120 Hz screens behave identically and nothing tunnels
+ const n=Math.max(1,Math.ceil(dt/(1/240))),h=dt/n;
+ for(let s=0;s<n;s++)physStep(h);
  const flying=P.jet>0||P.prop>0;
- // platforms
- for(const p of plats){
-  if(p.t==='m'){p.x+=p.vx*dt;if(p.x<0||p.x>W-PW){p.vx*=-1;p.x=Math.max(0,Math.min(W-PW,p.x));}}
-  if(p.broken)p.fall+=dt*600,p.y+=p.fall*dt;
-  if(p.gone)p.gone+=dt;
-  if(!flying&&!P.dead&&P.vy>0&&!p.broken&&!p.gone&&P.x>p.x-12&&P.x<p.x+PW+12&&prevY+30<=p.y&&P.y+30>=p.y){
-   if(p.t==='b'){p.broken=true;SFX.break();burst(p.x+PW/2,p.y,'#8a5a2b',8);continue;}
-   P.y=p.y-30;bounce(JUMP);SFX.jump();if(p.t==='d'){p.gone=.001;}
-  }
- }
- // powerups
- for(const u of pows){if(u.on){u.x=u.on.x+PW/2+u.dx;u.y=u.on.y-(u.hover?30:0);}
-  if(u.used)continue;
-  if(u.on&&(u.on.broken||u.on.gone>.3))u.used=1;
-  const dx=P.x-u.x,dy=(P.y+20)-u.y;
-  if(u.k==='spring'||u.k==='tramp'){if(!flying&&P.vy>0&&Math.abs(dx)<(u.k==='tramp'?34:16)&&dy>-12&&dy<16){P.y=u.y-36;bounce(u.k==='tramp'?-1500:-1300);u.act=1;SFX.spring();if(u.k==='tramp')P.flip=1;}}
-  else if(Math.abs(dx)<30&&Math.abs(P.y-u.y)<40){u.used=1;SFX.power();
-   if(u.k==='jet'){P.jet=2.6;P.prop=0;}else if(u.k==='prop'){P.prop=3;P.jet=0;}else if(u.k==='shield')P.shield=10;else P.magnet=10;
-   floatTxt(u.x,u.y,{jet:'Jetpack!',prop:'Propeller!',shield:'Schutzschild!',magnet:'Magnet!'}[u.k],'#ffe04a');}
-  if(u.act)u.act=Math.max(0,u.act-dt*4);
- }
+ for(const u of pows){if(u.act)u.act=Math.max(0,u.act-dt*4);
+  if(u.used||u.k==='spring'||u.k==='tramp')continue;
+  if(Math.abs(P.x-u.x)<30&&Math.abs(P.y-u.y)<40){u.used=1;SFX.power();
+   if(P.kid)delete P.kid[u.k];if(u.k==='jet'){P.jet=2.6;P.prop=0;}else if(u.k==='prop'){P.prop=3;P.jet=0;}else if(u.k==='shield')P.shield=10;else P.magnet=10;
+   floatTxt(u.x,u.y,{jet:'Jetpack!',prop:'Propeller!',shield:'Schutzschild!',magnet:'Magnet!'}[u.k],'#ffe04a');}}
  if(P.flip)P.flip=Math.max(0,P.flip-dt*1.3);
  // coins
  for(const c of coins){if(c.got)continue;c.ph+=dt*4;
   const dx=P.x-c.x,dy=P.y-c.y,dd=Math.hypot(dx,dy);
   if(P.magnet>0&&dd<260){c.x+=dx/dd*600*dt;c.y+=dy/dd*600*dt;}
-  if(dd<(c.big?40:28)){c.got=1;if(c.big){superRun++;score+=500;SFX.super();burst(c.x,c.y,'#ffe04a',26,260);burst(c.x,c.y,'#fff',14,200);floatTxt(c.x,c.y,'SUPER +500','#ffe04a');}
-   else{coinsRun++;score+=25;SFX.coin();burst(c.x,c.y,'#ffd23a',6,120);}}}
+  if(dd<(c.big?40:28)){c.got=1;if(c.big){superRun++;score+=500;SFX.super();kidPower(c.k);burst(c.x,c.y,'#ffe04a',26,260);burst(c.x,c.y,'#fff',14,200);floatTxt(c.x,c.y,'SUPER +500','#ffe04a');}
+   else{const m=P.dbl>0?2:1;coinsRun+=m;score+=25*m;SFX.coin();burst(c.x,c.y,'#ffd23a',6,120);}}}
  // monsters
  for(const m of mons){if(m.dead){m.y+=500*dt;m.rot=(m.rot||0)+dt*8;continue;}
   m.ph+=dt;m.x+=m.vx*dt;if(m.x<30||m.x>W-30)m.vx*=-1;
@@ -209,7 +218,7 @@ function drawFaceCoin(c,y,t){const r=26+Math.sin(t*5)*2;ctx.save();ctx.translate
  ctx.fillStyle='#b8860b';ctx.beginPath();ctx.arc(0,0,r+5,0,7);ctx.fill();ctx.fillStyle='#ffd23a';ctx.beginPath();ctx.arc(0,0,r+2.5,0,7);ctx.fill();
  ctx.save();ctx.beginPath();ctx.arc(0,0,r,0,7);ctx.clip();const im=IMG[c.k];if(im.complete&&im.naturalWidth)ctx.drawImage(im,-r,-r,r*2,r*2);ctx.restore();
  ctx.strokeStyle='#fff8';ctx.lineWidth=2;ctx.beginPath();ctx.arc(0,0,r+3.5,-2.4,-1.2);ctx.stroke();ctx.restore();}
-function drawPlat(p,y){let c1='#5fd35f',c2='#2f9e3a';if(p.t==='m'){c1='#5fb8ff';c2='#2a78c8';}if(p.t==='b'){c1='#c9925a';c2='#8a5a2b';}if(p.t==='d'){c1='#fff';c2='#c9c9c9';}
+function drawPlat(p,y){let c1='#5fd35f',c2='#2f9e3a';if(p.t==='m'){c1='#3aa0ff';c2='#1456b0';}if(p.t==='b'){c1='#c9925a';c2='#8a5a2b';}if(p.t==='d'){c1='#fff';c2='#c9c9c9';}
  ctx.save();if(p.gone)ctx.globalAlpha=Math.max(0,1-p.gone*2);if(p.broken){ctx.translate(p.x+PW/2,y);ctx.rotate(.3);ctx.translate(-p.x-PW/2,-y);}
  ctx.fillStyle=c2;rr(p.x,y+3,PW,PH,7);ctx.fill();ctx.fillStyle=c1;rr(p.x,y,PW,PH-2,7);ctx.fill();
  if(p.t==='b'){ctx.strokeStyle=c2;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(p.x+PW/2-4,y);ctx.lineTo(p.x+PW/2+3,y+6);ctx.lineTo(p.x+PW/2-2,y+12);ctx.stroke();}
@@ -230,8 +239,8 @@ function hud(t){const top=Math.max(10,parseInt(getComputedStyle(document.documen
  ctx.fillStyle='#ffffffd0';rr(8,8,W-118,46,14);ctx.fill();txt(String(score),20,31,24,'#3b2a4a','left');
  drawCoin({x:W-202,ph:0},31);txt(String(coinsRun),W-186,31,18,'#3b2a4a','left');
  ctx.save();ctx.beginPath();ctx.arc(W-142,31,12,0,7);ctx.clip();ctx.drawImage(IMG.kid1,W-154,19,24,24);ctx.restore();txt(String(superRun),W-126,31,18,'#3b2a4a','left');
- let y=66;const bars=[['jet','🚀',2.6],['prop','🧢',3],['shield','🛡️',10],['magnet','🧲',10]];
- for(const [k,ic,mx] of bars)if(P[k]>0){ctx.fillStyle='#ffffffd0';rr(8,y,130,24,12);ctx.fill();ctx.font='16px system-ui';ctx.textAlign='left';ctx.fillText(ic,14,y+13);ctx.fillStyle='#7b3fa0';rr(38,y+8,94*P[k]/mx,8,4);ctx.fill();y+=30;}}
+ let y=66;const bars=[['jet','🚀',2.6],['prop','🧢',3],['shield','🛡️',10],['magnet','🧲',10],['mega','⬆️',6]];
+ for(let [k,ic,mx] of bars)if(P[k]>0){const kid=P.kid&&P.kid[k];if(kid)mx=KIDPOW[kid][2];ctx.fillStyle=kid?'#fff3b0e0':'#ffffffd0';rr(8,y,130,24,12);ctx.fill();if(kid){ctx.save();ctx.beginPath();ctx.arc(22,y+12,11,0,7);ctx.clip();ctx.drawImage(IMG[kid],11,y+1,22,22);ctx.restore();}else{ctx.font='16px system-ui';ctx.textAlign='left';ctx.fillText(ic,14,y+13);}ctx.fillStyle='#7b3fa0';rr(38,y+8,94*P[k]/mx,8,4);ctx.fill();y+=30;}}
 let lastT=0;
 function frame(ts){requestAnimationFrame(frame);let dt=Math.min(.033,(ts-lastT)/1000||0);lastT=ts;const t=ts/1000;
  if(state==='play'){update(dt);}
@@ -255,13 +264,17 @@ function frame(ts){requestAnimationFrame(frame);let dt=Math.min(.033,(ts-lastT)/
  for(const c of coins)c.big?drawFaceCoin(c,c.y-camY,t):drawCoin(c,c.y-camY);
  for(const m of mons)drawMon(m,m.y-camY,t);
  const py=P.y-camY;
- drawMuna(P.x,py,1,{anim:P.dead?1:P.anim,sq:P.sq,vy:P.vy,face:P.face,t,jet:P.jet>0,prop:P.prop>0,fly:P.jet>0||P.prop>0,rot:P.dead?t*6:(P.flip?(1-P.flip)*6.283:0)});
+ drawMuna(P.x,py,P.mega>0?1.5:1,{anim:P.dead?1:P.anim,sq:P.sq,vy:P.vy,face:P.face,t,jet:P.jet>0,prop:P.prop>0,fly:P.jet>0||P.prop>0,rot:P.dead?t*6:(P.flip?(1-P.flip)*6.283:0)});
  if(P.x<30)drawMuna(P.x+W+40,py,1,{anim:P.anim,sq:P.sq,vy:P.vy,face:P.face,t});if(P.x>W-30)drawMuna(P.x-W-40,py,1,{anim:P.anim,sq:P.sq,vy:P.vy,face:P.face,t});
  if(P.shield>0&&(P.shield>2||Math.sin(t*20)>0)){ctx.strokeStyle='#5fb8ffcc';ctx.fillStyle='#5fb8ff22';ctx.lineWidth=3;ctx.beginPath();ctx.arc(P.x,py-18,52,0,7);ctx.fill();ctx.stroke();}
  if(P.magnet>0){ctx.strokeStyle=`rgba(232,67,58,${.25+.15*Math.sin(t*10)})`;ctx.lineWidth=2;ctx.setLineDash([6,8]);ctx.beginPath();ctx.arc(P.x,py,70+((t*80)%60),0,7);ctx.stroke();ctx.setLineDash([]);}
  for(const q of parts){ctx.globalAlpha=Math.max(0,q.l*1.5);ctx.fillStyle=q.c;ctx.beginPath();ctx.arc(q.x,q.y-camY,q.r,0,7);ctx.fill();}ctx.globalAlpha=1;
  for(const f of floaters){ctx.globalAlpha=Math.max(0,f.l);txt(f.s,f.x,f.y-camY,18,f.c,'center','#5a2a7a');}ctx.globalAlpha=1;
  ctx.restore();hud(t);
+ if(P.banner){const b=P.banner,a=Math.min(1,b.l*2),sc=1+Math.max(0,b.l-1.5)*1.5,r=70*sc;ctx.save();ctx.globalAlpha=a;ctx.translate(W/2,H*.32);
+  ctx.fillStyle='#b8860b';ctx.beginPath();ctx.arc(0,0,r+8,0,7);ctx.fill();ctx.fillStyle='#ffd23a';ctx.beginPath();ctx.arc(0,0,r+4,0,7);ctx.fill();
+  ctx.save();ctx.beginPath();ctx.arc(0,0,r,0,7);ctx.clip();ctx.drawImage(IMG[b.k],-r,-r,r*2,r*2);ctx.restore();
+  txt(b.name,0,r+40,38,'#ffe04a','center','#7b3fa0');ctx.restore();}
  if(state==='over'){ctx.fillStyle='#2a1a3acc';ctx.fillRect(0,0,W,H);
   txt('Game Over!',W/2,H*.2,48,'#ff5fae','center','#fff');
   if(newHi)txt('🎉 Neuer Rekord! 🎉',W/2,H*.2+50,22,'#ffe04a');
@@ -271,5 +284,5 @@ function frame(ts){requestAnimationFrame(frame);let dt=Math.min(.033,(ts-lastT)/
   txt('Nochmal? Tippen!',W/2,H*.88,26+Math.sin(t*5)*1.5,'#fff','center','#ff5fae');}
 }
 requestAnimationFrame(frame);
-window.__muna={get s(){return {state,P,coins,plats,mons,pows,score,camY}},startGame,set state(v){state=v}};
+window.__muna={get s(){return {state,P,coins,plats,mons,pows,score,camY}},startGame,update,set plats(v){plats=v},set pows(v){pows=v},set mons(v){mons=v},set state(v){state=v}};
 })();
