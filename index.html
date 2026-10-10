@@ -11,5 +11,5 @@ canvas{display:block;width:100vw;height:100vh;height:100dvh}
 #music{right:62px}</style></head><body>
 <canvas id="c"></canvas><button id="music" aria-label="Musik an/aus">🎵</button><button id="mute" aria-label="Ton an/aus">🔊</button>
 <script src="game.js"></script>
-<script>if('serviceWorker'in navigator&&location.protocol!=='file:')navigator.serviceWorker.register('sw.js');</script>
+<script>if('serviceWorker'in navigator&&location.protocol!=='file:'){navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(r=>r.update());let d=0;navigator.serviceWorker.addEventListener('controllerchange',()=>{if(!d){d=1;location.reload()}})}</script>
 </body></html>
