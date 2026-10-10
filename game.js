@@ -1,4 +1,5 @@
 'use strict';
+const VERSION='v5';
 (()=>{
 const cv=document.getElementById('c'),ctx=cv.getContext('2d');
 let W=390,H=844,DPR=1;
@@ -98,7 +99,7 @@ function burst(x,y,c,n=10,s=180){for(let i=0;i<n;i++){const a=Math.random()*6.28
 const KIDPOW={kid1:['RAKETE!','jet',4],kid2:['SCHUTZSCHILD!','shield',8],kid3:['MAGNET!','magnet',8],kid4:['MEGA-SPRUNG!','mega',6]};
 function kidPower(k){const [name,key,t]=KIDPOW[k];P[key]=t;if(key==='jet')P.prop=0;if(key==='magnet')P.dbl=t;P.kid=P.kid||{};P.kid[key]=k;P.banner={k,name,l:1.8};SFX.power();}
 function floatTxt(x,y,s,c='#fff'){floaters.push({x,y,s,c,l:1});}
-function bounce(v){if(P.mega>0)v*=1.45;P.lastBounce=v;P.vy=v;P.sq=.65;P.anim=1;}
+function bounce(v){if(P.mega>0)v*=1.45;P.lastBounce=v;P.lbx=P.x;P.vy=v;P.sq=.65;P.anim=1;}
 
 // one physics substep: move, then swept landing test against CURRENT platform positions
 function physStep(dt){
@@ -122,6 +123,8 @@ function physStep(dt){
   if(p.broken||p.gone)continue;
   if(P.x>p.x-14&&P.x<p.x+PW+14&&prevFeet<=p.y+2&&feet>=p.y){
    if(p.t==='b'){p.broken=true;SFX.break();burst(p.x+PW/2,p.y,'#8a5a2b',8);continue;}
+   const it=pows.find(u=>u.on===p&&!u.used&&(u.k==='tramp'||(u.k==='spring'&&Math.abs(P.x-u.x)<26)));
+   if(it){P.y=p.y-30;bounce(it.k==='tramp'?TRAMP:SPRING);it.act=1;SFX.spring();if(it.k==='tramp')P.flip=1;return;}
    P.y=p.y-30;bounce(JUMP);SFX.jump();if(p.t==='d')p.gone=.001;if(p.t==='m')P.vx+=p.vx*.3;return;}}
 }
 // ---------- Update ----------
@@ -254,7 +257,7 @@ function frame(ts){requestAnimationFrame(frame);let dt=Math.min(.033,(ts-lastT)/
   txt('Sammle die Super-Coins!',W/2,H*.74+52,16,'#5a2a7a');
   txt('Tippen zum Starten',W/2,H*.86,24+Math.sin(t*5)*1.5,'#fff','center','#7b3fa0');
   txt('Handy neigen oder links/rechts tippen',W/2,H*.86+36,14,'#6b5a7a');
-  txt(`Rekord: ${hi}   ·   Münzen gesamt: ${coinBank}`,W/2,H*.95,14,'#6b5a7a');
+  txt(VERSION,W-8,H-10,11,'#a89bb5','right');txt(`Rekord: ${hi}   ·   Münzen gesamt: ${coinBank}`,W/2,H*.95,14,'#6b5a7a');
   return;}
  // game
  ctx.save();if(shake>0)ctx.translate(rnd(-6,6)*shake*2,rnd(-6,6)*shake*2);
