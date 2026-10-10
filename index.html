@@ -10,6 +10,6 @@ canvas{display:block;width:100vw;height:100vh;height:100dvh}
 #mute,#music{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 10px);z-index:5;font-size:22px;width:44px;height:44px;border-radius:22px;border:0;background:#fff9;box-shadow:0 2px 6px #0003}
 #music{right:62px}</style></head><body>
 <canvas id="c"></canvas><button id="music" aria-label="Musik an/aus">🎵</button><button id="mute" aria-label="Ton an/aus">🔊</button>
-<script src="game.js?v=5"></script>
+<script src="game.js?v=6"></script>
 <script>if('serviceWorker'in navigator&&location.protocol!=='file:'){navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(r=>r.update());let d=0;navigator.serviceWorker.addEventListener('controllerchange',()=>{if(!d){d=1;location.reload()}})}</script>
 </body></html>

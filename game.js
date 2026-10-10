@@ -1,5 +1,5 @@
 'use strict';
-const VERSION='v5';
+const VERSION='v6';
 (()=>{
 const cv=document.getElementById('c'),ctx=cv.getContext('2d');
 let W=390,H=844,DPR=1;
@@ -69,17 +69,19 @@ let tiltAsked=false;
 function tapStart(){if(!tiltAsked){tiltAsked=true;enableTilt();}if(AC&&AC.state==='suspended')AC.resume();if(state==='over'&&performance.now()-overAt<700)return;startGame();}
 // ---------- World ----------
 const G=1500,JUMP=-820,SPRING=-1300,TRAMP=-1500,PW=64,PH=14;
-let state='start',overAt=0,P,plats,coins,mons,pows,parts,floaters,camY,score,coinsRun,superRun,stomps,hi=LS.get('hi',0),coinBank=LS.get('coins',0),topGen,t0=0,shake=0;
+let nextFace=0,faceIdx=0,state='start',overAt=0,P,plats,coins,mons,pows,parts,floaters,camY,score,coinsRun,superRun,stomps,hi=LS.get('hi',0),coinBank=LS.get('coins',0),topGen,t0=0,shake=0;
 const rnd=(a,b)=>a+Math.random()*(b-a);
 function diff(){return Math.min(1,(-camY)/25000);}
 function startGame(){
  P={x:W/2,y:H-150,vx:0,vy:JUMP,face:1,sq:1,anim:0,jet:0,prop:0,shield:0,magnet:0,dead:false};
  plats=[];coins=[];mons=[];pows=[];parts=[];floaters=[];camY=0;score=0;coinsRun=0;superRun=0;stomps=0;
- plats.push({x:W/2-PW/2,y:H-60,t:'n',vx:0});topGen=H-60;
+ plats.push({x:W/2-PW/2,y:H-60,t:'n',vx:0,gone:0});topGen=H-60;faceIdx=Math.random()*4|0;nextFace=-H*.3;
  while(topGen>-H)gen();state='play';startMusic();
 }
 function gen(){
  const d=diff(),gap=rnd(55,85+d*95);topGen-=gap;
+ if(topGen<nextFace){coins.push({x:rnd(40,W-40),y:nextFace,k:KIDS[faceIdx++%4],ph:0,big:1});nextFace-=H*rnd(1.2,1.7);
+}
  const r=Math.random();let t='n';
  if(r<.2+d*.2)t='m';else if(r<.28+d*.3)t='b';else if(r<.33+d*.33)t='d';
  const p={x:rnd(0,W-PW),y:topGen,t,vx:t==='m'?rnd(40,80+d*80)*(Math.random()<.5?-1:1):0,broken:false,gone:0,fall:0};
@@ -89,9 +91,8 @@ function gen(){
  const q=Math.random();
  if(q<.06)pows.push({x:p.x+PW/2,y:p.y,on:p,dx:rnd(-18,18),k:'spring'});
  else if(q<.085)pows.push({x:p.x+PW/2,y:p.y,on:p,dx:0,k:'tramp'});
- else if(q<.1&&-camY>800){const ks=['jet','prop','shield','magnet'];pows.push({x:p.x+PW/2,y:p.y-30,on:p,dx:0,k:ks[Math.random()*4|0],hover:1});}
+ else if(q<.1&&-camY>800&&!coins.some(c=>c.big&&Math.abs(c.y-p.y)<160)){const ks=['jet','prop','shield','magnet'];pows.push({x:p.x+PW/2,y:p.y-30,on:p,dx:0,k:ks[Math.random()*4|0],hover:1});}
  if(Math.random()<.35){const n=1+(Math.random()*3|0),cx=rnd(30,W-30);for(let i=0;i<n;i++)coins.push({x:cx,y:p.y-60-i*34,k:'gold',ph:Math.random()*6});}
- if(Math.random()<.035)coins.push({x:rnd(40,W-40),y:p.y-rnd(60,120),k:KIDS[Math.random()*4|0],ph:0,big:1});
  if(-topGen>1800&&Math.random()<.03+d*.07&&!mons.some(m=>Math.abs(m.y-topGen)<350)){mons.push({x:rnd(40,W-40),y:topGen-90,vx:rnd(30,70)*(Math.random()<.5?-1:1),k:Math.random()*3|0,ph:0,dead:0});}
 }
 function gen0(){topGen-=rnd(10,30);plats.push({x:rnd(0,W-PW),y:topGen,t:'n',vx:0,gone:0,fall:0});}
@@ -287,5 +288,5 @@ function frame(ts){requestAnimationFrame(frame);let dt=Math.min(.033,(ts-lastT)/
   txt('Nochmal? Tippen!',W/2,H*.88,26+Math.sin(t*5)*1.5,'#fff','center','#ff5fae');}
 }
 requestAnimationFrame(frame);
-window.__muna={get s(){return {state,P,coins,plats,mons,pows,score,camY}},startGame,update,set plats(v){plats=v},set pows(v){pows=v},set mons(v){mons=v},set state(v){state=v}};
+window.__muna={get s(){return {state,P,coins,plats,mons,pows,score,camY}},set camY(v){camY=v},gen,get topGen(){return topGen},startGame,update,set plats(v){plats=v},set pows(v){pows=v},set mons(v){mons=v},set state(v){state=v}};
 })();
