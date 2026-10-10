@@ -11,7 +11,7 @@ const LS={get:(k,d)=>{try{return +localStorage.getItem('muna_'+k)||d}catch(e){re
 let AC=null,muted=LS.get('muted',0)===1;
 const muteBtn=document.getElementById('mute');
 function updMute(){muteBtn.textContent=muted?'🔇':'🔊';}updMute();
-muteBtn.addEventListener('pointerdown',e=>{e.stopPropagation();muted=!muted;LS.set('muted',muted?1:0);updMute();});
+muteBtn.addEventListener('pointerdown',e=>{e.stopPropagation();muted=!muted;LS.set('muted',muted?1:0);updMute();if(muted)stopMusic();else if(state==='play')startMusic();});
 function ac(){AC=AC||new (window.AudioContext||window.webkitAudioContext)();return AC;}
 // generic voice: freq curve [[t,f],...], optional vibrato
 function voice(pts,{type='square',vol=.1,vib=0,vibF=0,delay=0,dur}={}){if(muted)return;try{const A=ac(),t=A.currentTime+delay,o=A.createOscillator(),g=A.createGain();o.type=type;
@@ -30,6 +30,29 @@ const SFX={
  break:()=>voice([[0,140],[.25,70]],{type:'sawtooth',vol:.12,vib:40,vibF:35}),                         // raspberry
  over:()=>{[[392,370],[370,349],[349,330]].forEach(([a,b],i)=>voice([[0,a],[.3,b]],{type:'sawtooth',vol:.09,delay:i*.38,dur:.33}));voice([[0,330],[1.0,294]],{type:'sawtooth',vol:.09,vib:12,vibF:6,delay:1.14,dur:1.0});}, // wah-wah-wah-waaah
  shield:()=>voice([[0,600],[.1,900],[.3,200]],{type:'triangle',vol:.14})};
+
+// ---------- Music (original chiptune loop) ----------
+let musicOn=LS.get('music',1)===1,mus=null;
+const musBtn=document.getElementById('music');
+function updMus(){musBtn.textContent='🎵';musBtn.style.opacity=musicOn?1:.35;}updMus();
+musBtn.addEventListener('pointerdown',e=>{e.stopPropagation();musicOn=!musicOn;LS.set('music',musicOn?1:0);updMus();if(!musicOn)stopMusic();else if(state==='play')startMusic();});
+// C major bouncy tune, 2 bars x 4, 16th steps; 0 = rest. MIDI notes
+const MEL=[72,0,76,0,79,0,76,77, 79,0,81,79,77,0,76,0, 74,0,77,0,81,0,79,77, 76,0,74,0,72,0,0,0,
+           72,0,76,0,79,0,84,0, 83,0,81,0,79,0,77,76, 74,76,77,0,74,0,71,0, 72,0,0,0,67,0,0,0];
+const BASS=[48,55,52,55,53,57,55,57,50,57,53,57,55,59,55,48];
+const mf=n=>440*Math.pow(2,(n-69)/12);
+function note(f,t,d,type,vol){const A=AC,o=A.createOscillator(),g=A.createGain();o.type=type;o.frequency.value=f;g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.0005,t+d);o.connect(g).connect(mus.out);o.start(t);o.stop(t+d+.02);}
+function startMusic(){if(!musicOn||muted||mus)return;try{ac();if(AC.state==='suspended')AC.resume();const out=AC.createGain();out.gain.value=.5;out.connect(AC.destination);
+ mus={out,step:0,next:AC.currentTime+.05,id:0};
+ const tick=()=>{if(!mus)return;const bpm=132+Math.min(36,(-camY||0)/400);const sd=60/bpm/4;
+  while(mus.next<AC.currentTime+.12){const i=mus.step%64,t=mus.next;
+   if(MEL[i])note(mf(MEL[i]),t,sd*1.6,'square',.035);
+   if(i%4===0)note(mf(BASS[(i/4)%16]),t,sd*3,'triangle',.08);
+   if(i%4===2){note(mf(BASS[((i-2)/4)%16]+12),t,sd*.8,'triangle',.04);}
+   if(i%8===4)note(2000,t,.03,'square',.012); // hat
+   mus.step++;mus.next+=sd;}};
+ mus.id=setInterval(tick,25);tick();}catch(e){mus=null;}}
+function stopMusic(){if(!mus)return;clearInterval(mus.id);try{mus.out.gain.setTargetAtTime(0,AC.currentTime,.05);}catch(e){}mus=null;}
 // ---------- Input ----------
 let tilt=0,hasTilt=false,keys={},touchDir=0;
 addEventListener('keydown',e=>{keys[e.key]=1;if((e.key===' '||e.key==='Enter')&&state!=='play')tapStart();});
@@ -52,7 +75,7 @@ function startGame(){
  P={x:W/2,y:H-150,vx:0,vy:JUMP,face:1,sq:1,anim:0,jet:0,prop:0,shield:0,magnet:0,dead:false};
  plats=[];coins=[];mons=[];pows=[];parts=[];floaters=[];camY=0;score=0;coinsRun=0;superRun=0;stomps=0;
  plats.push({x:W/2-PW/2,y:H-60,t:'n',vx:0});topGen=H-60;
- while(topGen>-H)gen();state='play';
+ while(topGen>-H)gen();state='play';startMusic();
 }
 function gen(){
  const d=diff(),gap=rnd(55,85+d*95);topGen-=gap;
@@ -137,7 +160,7 @@ function update(dt){
  if(shake>0)shake-=dt;
  if(P.y>camY+H+60)gameOver();
 }
-function gameOver(){state='over';overAt=performance.now();SFX.over();
+function gameOver(){state='over';stopMusic();overAt=performance.now();SFX.over();
  newHi=score>hi;if(newHi){hi=score;LS.set('hi',hi);}coinBank+=coinsRun+superRun*5;LS.set('coins',coinBank);}
 let newHi=false;
 // ---------- Drawing ----------
@@ -204,9 +227,9 @@ function drawMon(m,y,t){ctx.save();ctx.translate(m.x,y);if(m.dead)ctx.rotate(m.r
 function bg(off){ctx.fillStyle='#fdf6e3';ctx.fillRect(0,0,W,H);ctx.strokeStyle='#e6dcc0';ctx.lineWidth=1;const o=((off%24)+24)%24;ctx.beginPath();for(let y=-o;y<H;y+=24){ctx.moveTo(0,y);ctx.lineTo(W,y);}for(let x=0;x<W;x+=24){ctx.moveTo(x+.5,0);ctx.lineTo(x+.5,H);}ctx.stroke();}
 function txt(s,x,y,size,c='#3b2a4a',al='center',stroke){ctx.font=`900 ${size}px system-ui,-apple-system,sans-serif`;ctx.textAlign=al;ctx.textBaseline='middle';if(stroke){ctx.lineWidth=size/6;ctx.strokeStyle=stroke;ctx.lineJoin='round';ctx.strokeText(s,x,y);}ctx.fillStyle=c;ctx.fillText(s,x,y);}
 function hud(t){const top=Math.max(10,parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sat'))||10);
- ctx.fillStyle='#ffffffd0';rr(8,8,W-66,46,14);ctx.fill();txt(String(score),20,31,24,'#3b2a4a','left');
- drawCoin({x:W-150,ph:0},31);txt(String(coinsRun),W-134,31,18,'#3b2a4a','left');
- ctx.save();ctx.beginPath();ctx.arc(W-90,31,12,0,7);ctx.clip();ctx.drawImage(IMG.kid1,W-102,19,24,24);ctx.restore();txt(String(superRun),W-74,31,18,'#3b2a4a','left');
+ ctx.fillStyle='#ffffffd0';rr(8,8,W-118,46,14);ctx.fill();txt(String(score),20,31,24,'#3b2a4a','left');
+ drawCoin({x:W-202,ph:0},31);txt(String(coinsRun),W-186,31,18,'#3b2a4a','left');
+ ctx.save();ctx.beginPath();ctx.arc(W-142,31,12,0,7);ctx.clip();ctx.drawImage(IMG.kid1,W-154,19,24,24);ctx.restore();txt(String(superRun),W-126,31,18,'#3b2a4a','left');
  let y=66;const bars=[['jet','🚀',2.6],['prop','🧢',3],['shield','🛡️',10],['magnet','🧲',10]];
  for(const [k,ic,mx] of bars)if(P[k]>0){ctx.fillStyle='#ffffffd0';rr(8,y,130,24,12);ctx.fill();ctx.font='16px system-ui';ctx.textAlign='left';ctx.fillText(ic,14,y+13);ctx.fillStyle='#7b3fa0';rr(38,y+8,94*P[k]/mx,8,4);ctx.fill();y+=30;}}
 let lastT=0;
